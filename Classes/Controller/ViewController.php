@@ -118,6 +118,7 @@ class ViewController extends ActionController
         $absoluteWebPath = PathUtility::getAbsoluteWebPath(ExtensionManagementUtility::extPath('h5p'));
         $relativeCorePath = $absoluteWebPath . 'Resources/Public/Lib/h5p-core/';
 
+        //DebugUtility::debug(\H5PCore::$scripts);
         foreach (\H5PCore::$scripts as $script) {
             $this->pageRenderer->addJsFooterFile($relativeCorePath . $script, 'text/javascript', false, false, '', true);
         }
@@ -137,6 +138,84 @@ class ViewController extends ActionController
     {
         return $GLOBALS['LANG'];
     }
+
+
+    /**
+     * Embedded action
+     * @param int $elID
+     */
+    public function embeddedAction(int $elID)
+    {
+
+        /*
+        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable('tt_content');
+
+        $queryBuilder
+            ->select('*')
+            ->from('tt_content')
+            ->where($queryBuilder->expr()->eq('uid', $queryBuilder->createNamedParameter((int)$elID, \PDO::PARAM_INT)));
+
+        $data = $queryBuilder->execute()->fetch();
+        */
+
+        /** @var Content $content */
+        $content = $this->contentRepository->findByUid($elID);
+        if (!$content) {
+            $this->view->assign('contentNotFound', true);
+            return;
+        }
+
+        $this->pageRenderer->addJsInlineCode(
+            'H5PIntegration',
+            'H5PIntegration = ' . json_encode($this->getCoreSettings()) . ';'
+        );
+
+        $contentSettings = $this->getContentSettings($content);
+        $contentSettings['displayOptions'] = [];
+        $contentSettings['displayOptions']['frame'] = \H5PCore::DISABLE_FRAME;
+        #$contentSettings['displayOptions']['export'] = \H5PCore::DISABLE_DOWNLOAD;
+        $contentSettings['displayOptions']['copyright'] = \H5PCore::DISABLE_COPYRIGHT;
+        $contentSettings['displayOptions']['icon'] = \H5PCore::DISABLE_ABOUT;
+        $this->pageRenderer->addJsInlineCode(
+            'H5PIntegration contents cid-' . $content->getUid(),
+            'H5PIntegration.contents[\'cid-' . $content->getUid() . '\'] = ' . json_encode($contentSettings) . ';'
+        );
+
+        if ($content->getEmbedType() !== 'iframe') {
+            // load JS and CSS requirements
+            $contentLibrary = $content->getLibrary()->toAssocArray();
+
+            // JS and CSS required by all libraries
+            $contentLibraryWithDependencies = $this->h5pCore->loadLibrary($contentLibrary['machineName'], $contentLibrary['majorVersion'], $contentLibrary['minorVersion']);
+            $this->h5pCore->findLibraryDependencies($dependencies, $contentLibraryWithDependencies);
+            if (is_array($dependencies)) {
+                $dependencies = $this->h5pCore->orderDependenciesByWeight($dependencies);
+                foreach ($dependencies as $key => $dependency) {
+                    if (strpos($key, 'preloaded-') !== 0) {
+                        continue;
+                    }
+                    $this->loadJsAndCss($dependency['library']);
+                }
+            }
+
+            // JS and CSS required by the content
+            $contentDependencies = $this->h5pFramework->loadContentDependencies($elID, 'preloaded');
+            foreach ($contentDependencies as $dependency) {
+                $this->loadJsAndCss($dependency);
+            }
+
+            // JS and CSS required by the main Library of the content
+            $this->loadJsAndCss($contentLibrary);
+        }
+
+//
+//        $contentUserDataUri = $uriBuilder->reset()
+//            ->setArguments(['type' => 1560239219921, 'action' => 'contentUserData', 'h5pAction' => 'h5p_'])
+//            ->buildFrontendUri();
+
+        $this->view->assign('content', $content);
+    }
+
 
     /**
      * Index action
@@ -332,6 +411,8 @@ class ViewController extends ActionController
      */
     public function getContentSettings(Content $content)
     {
+        $embeddedUrl = $this->uriBuilder->setTargetPageType(723442)->setArguments(['tx_h5p_embedded' => ['elID' => $content->getUid()]])->setCreateAbsoluteUri(true)->buildFrontendUri();
+
         $settings = [
             'url'            => '/fileadmin/h5p',
             'library'        => sprintf(
@@ -344,7 +425,7 @@ class ViewController extends ActionController
             'jsonContent'    => $content->getFiltered(),
             'fullScreen'     => false,
             'exportUrl'      => '/path/to/download.h5p',
-            'embedCode'      => '',
+            'embedCode'      => $embeddedUrl,
             'resizeCode'     => '',
             'mainId'         => $content->getUid(),
             'title'          => $content->getTitle(),

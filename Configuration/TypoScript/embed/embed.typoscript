@@ -1,0 +1,37 @@
+
+h5pEmbeddedPage = PAGE
+h5pEmbeddedPage {
+  typeNum = 723442
+
+  config {
+    #disableAllHeaderCode = 1
+    additionalHeaders = Content-type:text/html
+    xhtml_cleaning = 0
+    admPanel = 0
+    debug = 0
+    no_cache = 1
+  }
+
+  10 = USER
+  10 {
+    userFunc = TYPO3\CMS\Extbase\Core\Bootstrap->run
+    extensionName = H5p
+    pluginName = embedded
+    vendorName = MichielRoos
+    controller = View
+    action = embedded
+  }
+
+
+  #10 = FLUIDTEMPLATE
+  #10 {
+  #  file = EXT:h5p/Resources/Private/Templates/View/Embedded.html
+  #  layoutRootPaths {
+  #    10 = EXT:h5p/Resources/Private/Layouts/
+  #  }
+  #}
+
+}
+
+
+
