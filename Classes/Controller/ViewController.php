@@ -412,7 +412,7 @@ class ViewController extends ActionController
     public function getContentSettings(Content $content)
     {
         $embeddedUrl = $this->uriBuilder->setTargetPageType(723442)->setArguments(['tx_h5p_embedded' => ['elID' => $content->getUid()]])->setCreateAbsoluteUri(true)->buildFrontendUri();
-        $embeddedUrl = '<iframe src="'.$embeddedUrl.'" width=":w" height=":h" frameborder="0" allowfullscreen="allowfullscreen" allow="geolocation *; microphone *; camera *; midi *; encrypted-media *" title=""></iframe>';
+        $embeddedUrl = '<iframe src="'.$embeddedUrl.'" width=":w" height=":h" frameborder="0" allowfullscreen="allowfullscreen" allow="geolocation *; microphone *; camera *; midi *; encrypted-media *" title="'.$content->getTitle().'"></iframe>';
 
         $uriPrefix = GeneralUtility::getIndpEnv('TYPO3_REQUEST_HOST') . $GLOBALS['TSFE']->absRefPrefix;
         $resizeCodeUrl = $uriPrefix . 'typo3conf/ext/h5p/Resources/Public/JavaScript/h5p-resizer.js';
