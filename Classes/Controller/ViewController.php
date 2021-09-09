@@ -142,9 +142,9 @@ class ViewController extends ActionController
 
     /**
      * Embedded action
-     * @param int $elID
+     * @param int $contentId
      */
-    public function embeddedAction(int $elID)
+    public function embeddedAction(int $contentId)
     {
 
         /*
@@ -153,13 +153,13 @@ class ViewController extends ActionController
         $queryBuilder
             ->select('*')
             ->from('tt_content')
-            ->where($queryBuilder->expr()->eq('uid', $queryBuilder->createNamedParameter((int)$elID, \PDO::PARAM_INT)));
+            ->where($queryBuilder->expr()->eq('uid', $queryBuilder->createNamedParameter((int)$contentId, \PDO::PARAM_INT)));
 
         $data = $queryBuilder->execute()->fetch();
         */
 
         /** @var Content $content */
-        $content = $this->contentRepository->findByUid($elID);
+        $content = $this->contentRepository->findByUid($contentId);
         if (!$content) {
             $this->view->assign('contentNotFound', true);
             return;
@@ -199,7 +199,7 @@ class ViewController extends ActionController
             }
 
             // JS and CSS required by the content
-            $contentDependencies = $this->h5pFramework->loadContentDependencies($elID, 'preloaded');
+            $contentDependencies = $this->h5pFramework->loadContentDependencies($contentId, 'preloaded');
             foreach ($contentDependencies as $dependency) {
                 $this->loadJsAndCss($dependency);
             }
@@ -411,7 +411,7 @@ class ViewController extends ActionController
      */
     public function getContentSettings(Content $content)
     {
-        $embeddedUrl = $this->uriBuilder->setTargetPageType(723442)->setArguments(['tx_h5p_embedded' => ['elID' => $content->getUid()]])->setCreateAbsoluteUri(true)->buildFrontendUri();
+        $embeddedUrl = $this->uriBuilder->setTargetPageType(723442)->setArguments(['tx_h5p_embedded' => ['contentId' => $content->getUid()]])->setCreateAbsoluteUri(true)->buildFrontendUri();
         $embeddedUrl = '<iframe src="'.$embeddedUrl.'" width=":w" height=":h" frameborder="0" allowfullscreen="allowfullscreen" allow="geolocation *; microphone *; camera *; midi *; encrypted-media *" title="'.$content->getTitle().'"></iframe>';
 
         $uriPrefix = GeneralUtility::getIndpEnv('TYPO3_REQUEST_HOST') . $GLOBALS['TSFE']->absRefPrefix;
