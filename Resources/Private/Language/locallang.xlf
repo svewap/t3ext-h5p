@@ -325,6 +325,9 @@
             <trans-unit id="module.menu.edit">
                 <source>Edit</source>
             </trans-unit>
+			<trans-unit id="not_found">
+				<source>Not found</source>
+			</trans-unit>
         </body>
     </file>
 </xliff>

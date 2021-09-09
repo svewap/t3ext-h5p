@@ -147,19 +147,9 @@ class ViewController extends ActionController
     public function embeddedAction(int $contentId)
     {
 
-        /*
-        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable('tt_content');
-
-        $queryBuilder
-            ->select('*')
-            ->from('tt_content')
-            ->where($queryBuilder->expr()->eq('uid', $queryBuilder->createNamedParameter((int)$contentId, \PDO::PARAM_INT)));
-
-        $data = $queryBuilder->execute()->fetch();
-        */
-
         /** @var Content $content */
         $content = $this->contentRepository->findByUid($contentId);
+
         if (!$content) {
             $this->view->assign('contentNotFound', true);
             return;
@@ -214,6 +204,8 @@ class ViewController extends ActionController
 //            ->buildFrontendUri();
 
         $this->view->assign('content', $content);
+
+        $this->pageRenderer->setTitle($content->getTitle());
     }
 
 
@@ -411,7 +403,9 @@ class ViewController extends ActionController
      */
     public function getContentSettings(Content $content)
     {
-        $embeddedUrl = $this->uriBuilder->setTargetPageType(723442)->setArguments(['tx_h5p_embedded' => ['contentId' => $content->getUid()]])->setCreateAbsoluteUri(true)->buildFrontendUri();
+
+        $embeddedUrl = GeneralUtility::getIndpEnv('TYPO3_SITE_URL').'h5p/embed/'.$content->getUid();
+        //$embeddedUrl = $this->uriBuilder->setTargetPageType(723442)->setArguments(['tx_h5p_embedded' => ['contentId' => $content->getUid()]])->setCreateAbsoluteUri(true)->buildFrontendUri();
         $embeddedUrl = '<iframe src="'.$embeddedUrl.'" width=":w" height=":h" frameborder="0" allowfullscreen="allowfullscreen" allow="geolocation *; microphone *; camera *; midi *; encrypted-media *" title="'.$content->getTitle().'"></iframe>';
 
         $uriPrefix = GeneralUtility::getIndpEnv('TYPO3_REQUEST_HOST') . $GLOBALS['TSFE']->absRefPrefix;

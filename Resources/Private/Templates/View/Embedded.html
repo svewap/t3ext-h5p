@@ -3,16 +3,25 @@
 
 <f:section name="content">
 
-    <div class="h5p-iframe-wrapper">
-        <iframe id="h5p-iframe-{content.uid}"
-                class="h5p-iframe"
-                data-content-id="{content.uid}"
-                style="height:1px"
-                scrolling="no"
-                frameborder="0"
-                src="about:blank">
-        </iframe>
-    </div>
+    <f:if condition="{contentNotFound}">
+        <f:then>
+            <div class="alert alert-danger" role="alert" style="padding: 1rem 1rem;margin-bottom: 1rem;border: 1px solid #f5c2c7;border-radius: .25rem;color: #842029;background-color: #f8d7da;"><f:translate key="LLL:EXT:h5p/Resources/Private/Language/locallang.xlf:not_found" /></div>
+        </f:then>
+        <f:else>
+            <div class="h5p-iframe-wrapper">
+                <iframe id="h5p-iframe-{content.uid}"
+                        class="h5p-iframe"
+                        data-content-id="{content.uid}"
+                        style="height:1px"
+                        scrolling="no"
+                        frameborder="0"
+                        src="about:blank">
+                </iframe>
+            </div>
+        </f:else>
+    </f:if>
+
+
 
 </f:section>
 </html>
