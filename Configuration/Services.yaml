@@ -8,10 +8,6 @@ services:
     arguments:
       $objectManager: '@TYPO3\CMS\Extbase\Object\ObjectManager'
 
-  MichielRoos\H5p\Middleware\H5pViewer:
-    arguments:
-      $context: '@TYPO3\CMS\Core\Context\Context'
-
   MichielRoos\H5p\Middleware\H5pRouteResolver:
     arguments:
       $requestFactory: '@TYPO3\CMS\Core\Http\RequestFactory'
