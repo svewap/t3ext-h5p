@@ -64,12 +64,15 @@ class H5pRouteResolver implements MiddlewareInterface
             $path = ltrim($request->getUri()->getPath(), '/');
 
             if (strpos($path, 'h5p/embed/') !== false) {
+                $queryParams = $request->getQueryParams();
                 $source = 't3://page?uid='.$site->getRootPageId().'&type=723442';
                 $params = explode('/',$path);
                 $id = (int)$params[array_key_last($params)];
 
                 $source .= '&tx_h5p_embedded[contentId]='.$id;
-
+                foreach ($queryParams as $key => $value) {
+                    $source .= '&tx_h5p_embedded['.$key.']='.$value;
+                }
                 $urlParams = $this->linkService->resolve($source);
                 $uri = $urlParams['url'] ?? $this->getPageUri($request, $site, $urlParams);
                 [$content, $contentType] = $this->getFromUri($uri);

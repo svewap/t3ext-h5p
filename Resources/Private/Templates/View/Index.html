@@ -9,7 +9,7 @@
         <f:else>
             <h1>{content.title}</h1>
 
-            <iframe src="/h5p/embed/{content.uid}" frameborder="0" allowfullscreen="allowfullscreen" allow="geolocation *; microphone *; camera *; midi *; encrypted-media *" title="{content.title}"></iframe>
+            <iframe src="/h5p/embed/{content.uid}?{queryString}" frameborder="0" allowfullscreen="allowfullscreen" allow="geolocation *; microphone *; camera *; midi *; encrypted-media *" title="{content.title}"></iframe>
 
             {contentSettings.resizeCode -> f:format.raw()}
 
