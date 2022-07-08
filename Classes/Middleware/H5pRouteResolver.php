@@ -21,15 +21,26 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\MiddlewareInterface;
 use Psr\Http\Server\RequestHandlerInterface;
-use TYPO3\CMS\Core\Http\HtmlResponse;
 use TYPO3\CMS\Core\Http\RequestFactory;
 use TYPO3\CMS\Core\LinkHandling\LinkService;
+use TYPO3\CMS\Core\Localization\Locales;
 use TYPO3\CMS\Core\Routing\InvalidRouteArgumentsException;
 use TYPO3\CMS\Core\Routing\RouterInterface;
+use TYPO3\CMS\Core\Routing\SiteMatcher;
+use TYPO3\CMS\Core\Routing\SiteRouteResult;
 use TYPO3\CMS\Core\Site\Entity\Site;
+use TYPO3\CMS\Core\Site\Entity\SiteLanguage;
 
 /**
- * Resolves static routes - can return configured content directly or load content from file / urls
+ *
+ * routeEnhancers.Suffix.map.h5pembed: 723442
+ *
+ * routes:
+ *  -
+ *    route: /h5p/embed/
+ *    type: h5pRoute
+ *    source: 't3://page?uid=<PAGE_ID>&type=723442'
+ *
  */
 class H5pRouteResolver implements MiddlewareInterface
 {
@@ -43,12 +54,20 @@ class H5pRouteResolver implements MiddlewareInterface
      */
     protected $linkService;
 
+    /**
+     * @var SiteMatcher
+     */
+    protected $matcher;
+
     public function __construct(
         RequestFactory $requestFactory,
-        LinkService $linkService
-    ) {
+        LinkService    $linkService,
+        SiteMatcher $matcher
+    )
+    {
         $this->requestFactory = $requestFactory;
         $this->linkService = $linkService;
+        $this->matcher = $matcher;
     }
 
     /**
@@ -60,47 +79,61 @@ class H5pRouteResolver implements MiddlewareInterface
      */
     public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
     {
-        if (($site = $request->getAttribute('site', null)) instanceof Site) {
-            $path = ltrim($request->getUri()->getPath(), '/');
 
-            if (strpos($path, 'h5p/embed/') !== false) {
-                $queryParams = $request->getQueryParams();
-                $source = 't3://page?uid='.$site->getRootPageId().'&type=723442';
-                $params = explode('/',$path);
-                $id = (int)$params[array_key_last($params)];
+        if (($site = $request->getAttribute('site', null)) instanceof Site &&
+            ($configuration = $site->getConfiguration()['routes'] ?? null)
+        ) {
 
-                $source .= '&tx_h5p_embedded[contentId]='.$id;
-                foreach ($queryParams as $key => $value) {
-                    $source .= '&tx_h5p_embedded['.$key.']='.$value;
+            foreach ($configuration as $route) {
+                if (($route['type'] ?? '') === 'h5pRoute' && isset($route['route']) && strpos($request->getUri()->getPath(), $route['route']) !== false) {
+                    $request = $this->performRequest($request, $site, $route);
                 }
-                $urlParams = $this->linkService->resolve($source);
-                $uri = $urlParams['url'] ?? $this->getPageUri($request, $site, $urlParams);
-                [$content, $contentType] = $this->getFromUri($uri);
-
-                return new HtmlResponse($content, 200, ['Content-Type' => $contentType]);
             }
 
         }
+
         return $handler->handle($request);
     }
 
 
-    /**
-     * @param string $uri
-     * @return array
-     */
-    protected function getFromUri(string $uri): array
-    {
-        $response = $this->requestFactory->request($uri);
-        $contentType = 'text/plain; charset=utf-8';
-        $content = '';
-        if ($response->getStatusCode() === 200) {
-            $content = $response->getBody()->getContents();
-            $contentType = $response->getHeader('Content-Type');
+    private function performRequest(ServerRequestInterface $request, Site $site, array $route) {
+
+
+        $queryParams = $request->getQueryParams();
+
+        $params = explode('/', $request->getUri()->getPath());
+        $hp5Id = (int)$params[array_key_last($params)];
+
+        $tx_h5p_embedded = [
+            'contentId' => $hp5Id
+        ];
+        foreach ($queryParams as $key => $value) {
+            $tx_h5p_embedded[$key] = $value;
         }
 
-        return [$content, $contentType];
+        $urlParams = $this->linkService->resolve($route['source']);
+
+        $path = $this->getPagePath($request, $site, $urlParams );
+
+        $uri = $request->getUri();
+        $uri = $uri->withPath($path);
+
+
+        $request = $request->withUri($uri, true)->withQueryParams([
+            'tx_h5p_embedded' => $tx_h5p_embedded,
+        ]);
+
+        /** @var SiteRouteResult $routeResult */
+        $routeResult = $this->matcher->matchRequest($request);
+        $request = $request->withAttribute('language', $routeResult->getLanguage());
+        $request = $request->withAttribute('routing', $routeResult);
+        if ($routeResult->getLanguage() instanceof SiteLanguage) {
+            Locales::setSystemLocaleFromSiteLanguage($routeResult->getLanguage());
+        }
+
+        return $request;
     }
+
 
     /**
      * @param ServerRequestInterface $request
@@ -109,7 +142,7 @@ class H5pRouteResolver implements MiddlewareInterface
      * @return string
      * @throws InvalidRouteArgumentsException
      */
-    protected function getPageUri(ServerRequestInterface $request, Site $site, array $urlParams): string
+    protected function getPagePath(ServerRequestInterface $request, Site $site, array $urlParams): string
     {
         $parameters = [];
         // Add additional parameters, if set via TypoLink
@@ -122,7 +155,7 @@ class H5pRouteResolver implements MiddlewareInterface
             (int)$urlParams['pageuid'],
             $parameters,
             '',
-            RouterInterface::ABSOLUTE_URL
+            RouterInterface::ABSOLUTE_PATH
         );
         return (string)$uri;
     }
