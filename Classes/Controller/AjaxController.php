@@ -18,6 +18,7 @@ use MichielRoos\H5p\Domain\Model\Content;
 use MichielRoos\H5p\Domain\Model\ContentResult;
 use MichielRoos\H5p\Domain\Repository\ContentRepository;
 use MichielRoos\H5p\Domain\Repository\ContentResultRepository;
+use Psr\Http\Message\ResponseInterface;
 use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Extbase\Domain\Repository\FrontendUserRepository;
@@ -44,7 +45,7 @@ class AjaxController extends ActionController
     /**
      * Finish action
      */
-    public function finishAction()
+    public function finishAction(): ResponseInterface
     {
         $user = null;
 
@@ -102,7 +103,7 @@ class AjaxController extends ActionController
     /**
      * Finish action
      */
-    public function contentUserDataAction()
+    public function contentUserDataAction(): ResponseInterface
     {
     }
 

@@ -1,7 +1,10 @@
 <?php
+
+use TYPO3\CMS\Extbase\Utility\ExtensionUtility;
+
 defined('TYPO3_MODE') or die('¯\_(ツ)_/¯');
 
-\TYPO3\CMS\Extbase\Utility\ExtensionUtility::configurePlugin(
+ExtensionUtility::configurePlugin(
     'MichielRoos.h5p',
     'view',
     [
@@ -10,10 +13,10 @@ defined('TYPO3_MODE') or die('¯\_(ツ)_/¯');
     [
         'View' => 'index',
     ],
-    \TYPO3\CMS\Extbase\Utility\ExtensionUtility::PLUGIN_TYPE_CONTENT_ELEMENT
+    ExtensionUtility::PLUGIN_TYPE_CONTENT_ELEMENT
 );
 
-\TYPO3\CMS\Extbase\Utility\ExtensionUtility::configurePlugin(
+ExtensionUtility::configurePlugin(
     'MichielRoos.h5p',
     'embedded',
     [
@@ -22,10 +25,10 @@ defined('TYPO3_MODE') or die('¯\_(ツ)_/¯');
     [
         'View' => 'embedded',
     ],
-    \TYPO3\CMS\Extbase\Utility\ExtensionUtility::PLUGIN_TYPE_CONTENT_ELEMENT
+    ExtensionUtility::PLUGIN_TYPE_CONTENT_ELEMENT
 );
 
-\TYPO3\CMS\Extbase\Utility\ExtensionUtility::configurePlugin(
+ExtensionUtility::configurePlugin(
     'MichielRoos.h5p',
     'statistics',
     [
@@ -34,10 +37,10 @@ defined('TYPO3_MODE') or die('¯\_(ツ)_/¯');
     [
         'View' => 'statistics',
     ],
-    \TYPO3\CMS\Extbase\Utility\ExtensionUtility::PLUGIN_TYPE_CONTENT_ELEMENT
+    ExtensionUtility::PLUGIN_TYPE_CONTENT_ELEMENT
 );
 
-\TYPO3\CMS\Extbase\Utility\ExtensionUtility::configurePlugin(
+ExtensionUtility::configurePlugin(
     'MichielRoos.h5p',
     'ajax',
     [
@@ -48,8 +51,8 @@ defined('TYPO3_MODE') or die('¯\_(ツ)_/¯');
     ]
 );
 
-\TYPO3\CMS\Extbase\Utility\ExtensionUtility::registerTypeConverter(\MichielRoos\H5p\Property\TypeConverter\UploadedFileReferenceConverter::class);
-\TYPO3\CMS\Extbase\Utility\ExtensionUtility::registerTypeConverter(\MichielRoos\H5p\Property\TypeConverter\ObjectStorageConverter::class);
+ExtensionUtility::registerTypeConverter(\MichielRoos\H5p\Property\TypeConverter\UploadedFileReferenceConverter::class);
+ExtensionUtility::registerTypeConverter(\MichielRoos\H5p\Property\TypeConverter\ObjectStorageConverter::class);
 
 
 // InsertH5p button for editor
