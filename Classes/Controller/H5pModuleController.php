@@ -1,19 +1,21 @@
 <?php
+
 namespace MichielRoos\H5p\Controller;
 
-/*
- * This file is part of the TYPO3 CMS project.
- *
- * It is free software; you can redistribute it and/or modify it under
- * the terms of the GNU General Public License, either version 2
- * of the License, or any later version.
- *
- * For the full copyright and license information, please read the
- * LICENSE.txt file that was distributed with this source code.
- *
- * The TYPO3 project - inspiring people to share!
- */
 
+use TYPO3\CMS\Backend\Template\ModuleTemplate;
+use TYPO3\CMS\Core\Messaging\AbstractMessage;
+use TYPO3\CMS\Core\Page\PageRenderer;
+use TYPO3\CMS\Backend\Template\ModuleTemplateFactory;
+use TYPO3\CMS\Core\Imaging\IconFactory;
+use Psr\Http\Message\ResponseInterface;
+use TYPO3\CMS\Core\Configuration\ExtensionConfiguration;
+use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
+use TYPO3\CMS\Core\Pagination\SimplePagination;
+use TYPO3\CMS\Extbase\Mvc\Exception\StopActionException;
+use TYPO3\CMS\Extbase\Mvc\Exception\NoSuchArgumentException;
+use TYPO3\CMS\Extbase\Http\ForwardResponse;
+use TYPO3\CMS\Backend\Routing\Exception\RouteNotFoundException;
 use H5P_Plugin;
 use H5PContentValidator;
 use H5PCore;
@@ -29,70 +31,37 @@ use MichielRoos\H5p\Domain\Repository\ContentRepository;
 use MichielRoos\H5p\Domain\Repository\LibraryRepository;
 use MichielRoos\H5p\Property\TypeConverter\UploadedFileReferenceConverter;
 use TYPO3\CMS\Backend\Routing\UriBuilder as BackendUriBuilder;
-use TYPO3\CMS\Backend\Template\Components\ButtonBar;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
-use TYPO3\CMS\Backend\View\BackendTemplateView;
 use TYPO3\CMS\Core\Imaging\Icon;
 use TYPO3\CMS\Core\Localization\LanguageService;
-use TYPO3\CMS\Core\Messaging\FlashMessage;
 use TYPO3\CMS\Core\Resource\FileInterface;
 use TYPO3\CMS\Core\Resource\ResourceFactory;
 use TYPO3\CMS\Core\Utility\ExtensionManagementUtility;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\PathUtility;
-use TYPO3\CMS\Extbase\Mvc\Controller\ActionController;
 use TYPO3\CMS\Extbase\Mvc\View\ViewInterface;
-use TYPO3\CMS\Extbase\Mvc\Web\Routing\UriBuilder;
-use TYPO3\CMS\Extbase\Object\ObjectManager;
+use TYPO3\CMS\Extbase\Pagination\QueryResultPaginator;
 use TYPO3\CMS\Extbase\Persistence\Generic\PersistenceManager;
 use TYPO3\CMS\Extbase\Property\PropertyMappingConfiguration;
+use TYPO3\CMS\Extbase\Utility\LocalizationUtility;
+use TYPO3\CMS\Form\Controller\AbstractBackendController;
 
 /**
  * Module 'H5P' for the 'h5p' extension.
  */
-class H5pModuleController extends ActionController
+class H5pModuleController extends AbstractBackendController
 {
-    /**
-     * @var string
-     */
-    public $perms_clause;
-
-    /**
-     * @var bool
-     */
-    protected $h5pContentAllowedOnPage = false;
-
-    /**
-     * @var string
-     */
-    protected $relativePath;
-
-    /**
-     * @var array
-     */
-    protected $pageRecord = [];
-
-    /**
-     * @var bool
-     */
-    protected $isAccessibleForCurrentUser = false;
-
-    /**
-     * @var int
-     */
-    protected $id;
-
-    /**
-     * @var BackendTemplateView
-     */
-    protected $view;
-
-    /**
-     * BackendTemplateView Container
-     *
-     * @var BackendTemplateView
-     */
-    protected $defaultViewObjectName = BackendTemplateView::class;
+    public string $perms_clause;
+    protected bool $h5pContentAllowedOnPage = false;
+    protected string $relativePath;
+    protected array $pageRecord = [];
+    protected bool $isAccessibleForCurrentUser = false;
+    protected int $id;
+    protected BackendUriBuilder $backendUriBuilder;
+    protected ModuleTemplateFactory $moduleTemplateFactory;
+    protected PageRenderer $pageRenderer;
+    protected IconFactory $iconFactory;
+    protected int $limit = 20;
 
     /**
      * @var FileStorage|object
@@ -117,30 +86,50 @@ class H5pModuleController extends ActionController
     /**
      * @var string
      */
-    private $language;
+    private string $language;
 
     /**
      * @var H5peditor|object
      */
     private $h5pEditor;
 
-    /**
-     * @var \TYPO3\CMS\Core\Page\PageRenderer
-     */
-    private $pageRenderer;
+    private ModuleTemplate $moduleTemplate;
+    private int $itemsPerPage = 50;
+
+    public function __construct(
+        ModuleTemplateFactory $moduleTemplateFactory,
+        PageRenderer $pageRenderer,
+        IconFactory $iconFactory,
+        BackendUriBuilder $backendUriBuilder
+    ) {
+        $this->moduleTemplateFactory = $moduleTemplateFactory;
+        $this->pageRenderer = $pageRenderer;
+        $this->iconFactory = $iconFactory;
+        $this->backendUriBuilder = $backendUriBuilder;
+    }
 
     /**
      * Initializes the Module
      *
      * @return void
+     * @throws \TYPO3\CMS\Core\Configuration\Exception\ExtensionConfigurationExtensionNotConfiguredException
+     * @throws \TYPO3\CMS\Core\Configuration\Exception\ExtensionConfigurationPathDoesNotExistException
      */
-    public function initializeAction()
+    public function initializeAction(): void
     {
+        $this->moduleTemplate = $this->moduleTemplateFactory->create($this->request);
+        $this->moduleTemplate->setTitle(LocalizationUtility::translate('LLL:EXT:h5p/Resources/Private/Language/BackendModule.xlf:mlang_tabs_tab'));
+
         $this->id = (int)GeneralUtility::_GP('id');
         $backendUser = $this->getBackendUser();
         $this->perms_clause = $backendUser->getPagePermsClause(1);
         $this->pageRecord = BackendUtility::readPageAccess($this->id, $this->perms_clause);
         $this->isAccessibleForCurrentUser = ($this->id && is_array($this->pageRecord)) || (!$this->id && $this->isCurrentUserAdmin());
+
+        $this->pageRenderer->addInlineLanguageLabelFile('EXT:h5p/Resources/Private/Language/locallang.xlf');
+        if ($this->isAccessibleForCurrentUser) {
+            $this->moduleTemplate->getDocHeaderComponent()->setMetaInformation($this->pageRecord);
+        }
 
         // don't access in workspace
         if ($backendUser->workspace !== 0) {
@@ -149,24 +138,12 @@ class H5pModuleController extends ActionController
 
         // Get extension configuration
         $allowContentOnStandardPages = false;
-        $extConf = unserialize($GLOBALS['TYPO3_CONF_VARS']['EXT']['extConf']['h5p']);
+        $extConf = GeneralUtility::makeInstance(ExtensionConfiguration::class)->get('h5p');
         if (!isset($extConf['onlyAllowRecordsInSysfolders']) || (int)$extConf['onlyAllowRecordsInSysfolders'] === 0) {
             $allowContentOnStandardPages = true;
         }
         $pageIsSysfolder = (int)$this->pageRecord['doktype'] === 254;
         $this->h5pContentAllowedOnPage = $allowContentOnStandardPages || $pageIsSysfolder;
-
-        // read configuration
-        $modTS = $backendUser->getTSConfig('mod.recycler');
-        if ($this->isCurrentUserAdmin()) {
-            $this->allowDelete = true;
-        } else {
-            $this->allowDelete = (bool)$modTS['properties']['allowDelete'];
-        }
-
-        if (isset($modTS['properties']['recordsPageLimit']) && (int)$modTS['properties']['recordsPageLimit'] > 0) {
-            $this->recordsPageLimit = (int)$modTS['properties']['recordsPageLimit'];
-        }
 
         $this->language = ($this->getLanguageService()->lang === 'default') ? 'en' : $this->getLanguageService()->lang;
 
@@ -184,9 +161,9 @@ class H5pModuleController extends ActionController
     /**
      * Returns the current BE user.
      *
-     * @return \TYPO3\CMS\Core\Authentication\BackendUserAuthentication
+     * @return BackendUserAuthentication
      */
-    protected function getBackendUser()
+    protected function getBackendUser(): BackendUserAuthentication
     {
         return $GLOBALS['BE_USER'];
     }
@@ -196,7 +173,7 @@ class H5pModuleController extends ActionController
      *
      * @return bool Whether the current user is admin
      */
-    protected function isCurrentUserAdmin()
+    protected function isCurrentUserAdmin(): bool
     {
         return (bool)$this->getBackendUser()->user['admin'];
     }
@@ -206,27 +183,28 @@ class H5pModuleController extends ActionController
      *
      * @return LanguageService
      */
-    protected function getLanguageService()
+    protected function getLanguageService(): LanguageService
     {
-        return $GLOBALS['LANG'];
+        return GeneralUtility::makeInstance(LanguageService::class);
     }
 
     /**
      * Initialize the view
+     * @todo v12: Change signature to TYPO3Fluid\Fluid\View\ViewInterface when extbase ViewInterface is dropped.
      *
      * @param ViewInterface $view The view
      * @return void
-     * @throws \TYPO3\CMS\Core\Resource\Exception\ExistingTargetFolderException
-     * @throws \TYPO3\CMS\Core\Resource\Exception\InsufficientFolderAccessPermissionsException
-     * @throws \TYPO3\CMS\Core\Resource\Exception\InsufficientFolderWritePermissionsException
      */
-    public function initializeView(ViewInterface $view)
+    public function initializeView(ViewInterface $view): void
     {
-        /** @var BackendTemplateView $view */
-        parent::initializeView($view);
+        $view->assignMultiple([
+            'dateFormat' => $GLOBALS['TYPO3_CONF_VARS']['SYS']['ddmmyy'],
+            'timeFormat' => $GLOBALS['TYPO3_CONF_VARS']['SYS']['hhmm'],
+        ]);
+
         $this->registerDocheaderButtons();
         $this->generateMenu();
-        $this->view->getModuleTemplate()->setFlashMessageQueue($this->controllerContext->getFlashMessageQueue());
+        $this->moduleTemplate->setFlashMessageQueue($this->controllerContext->getFlashMessageQueue());
     }
 
     /**
@@ -235,10 +213,9 @@ class H5pModuleController extends ActionController
      * @return void
      * @throws \InvalidArgumentException
      */
-    protected function registerDocheaderButtons()
+    protected function registerDocheaderButtons(): void
     {
-        /** @var ButtonBar $buttonBar */
-        $buttonBar = $this->view->getModuleTemplate()->getDocHeaderComponent()->getButtonBar();
+        $buttonBar = $this->moduleTemplate->getDocHeaderComponent()->getButtonBar();
         $currentRequest = $this->request;
         $moduleName = $currentRequest->getPluginName();
         $getVars = $this->request->getArguments();
@@ -253,26 +230,24 @@ class H5pModuleController extends ActionController
             ->setGetVariables($getVars);
         $buttonBar->addButton($shortcutButton);
 
-        if ($this->h5pContentAllowedOnPage) {
-            if (in_array($this->request->getControllerActionName(), ['content', 'index', 'show'])) {
-                $title = $this->getLanguageService()->sL('LLL:EXT:h5p/Resources/Private/Language/locallang.xlf:module.menu.new');
-                $icon = $this->view->getModuleTemplate()->getIconFactory()->getIcon('actions-document-new', Icon::SIZE_SMALL);
-                $addUserButton = $buttonBar->makeLinkButton()
-                    ->setHref($this->getHref('H5pModule', 'new'))
-                    ->setTitle($title)
-                    ->setIcon($icon);
-                $buttonBar->addButton($addUserButton, ButtonBar::BUTTON_POSITION_LEFT);
-            }
+        if ($this->h5pContentAllowedOnPage && in_array($this->request->getControllerActionName(), ['content', 'index', 'show'])) {
+            $title = $this->getLanguageService()->sL('LLL:EXT:h5p/Resources/Private/Language/locallang.xlf:module.menu.new');
+            $icon = $this->iconFactory->getIcon('actions-document-new', Icon::SIZE_SMALL);
+            $addUserButton = $buttonBar->makeLinkButton()
+                ->setHref($this->getHref('H5pModule', 'new'))
+                ->setTitle($title)
+                ->setIcon($icon);
+            $buttonBar->addButton($addUserButton);
         }
 
         if (in_array($this->request->getControllerActionName(), ['show'])) {
             $title = $this->getLanguageService()->sL('LLL:EXT:h5p/Resources/Private/Language/locallang.xlf:module.menu.edit');
-            $icon = $this->view->getModuleTemplate()->getIconFactory()->getIcon('actions-document-open', Icon::SIZE_SMALL);
+            $icon = $this->iconFactory->getIcon('actions-document-open', Icon::SIZE_SMALL);
             $addUserButton = $buttonBar->makeLinkButton()
                 ->setHref($this->getHref('H5pModule', 'edit', ['contentId' => $this->request->getArgument('contentId')]))
                 ->setTitle($title)
                 ->setIcon($icon);
-            $buttonBar->addButton($addUserButton, ButtonBar::BUTTON_POSITION_LEFT);
+            $buttonBar->addButton($addUserButton);
         }
     }
 
@@ -284,11 +259,10 @@ class H5pModuleController extends ActionController
      * @param array $parameters
      * @return string
      */
-    protected function getHref($controller, $action, $parameters = [])
+    protected function getHref(string $controller, string $action, array $parameters = []): string
     {
-        $uriBuilder = $this->objectManager->get(UriBuilder::class);
-        $uriBuilder->setRequest($this->request);
-        return $uriBuilder->reset()->uriFor($action, $parameters, $controller);
+        $this->uriBuilder->setRequest($this->request);
+        return $this->uriBuilder->reset()->uriFor($action, $parameters, $controller);
     }
 
     /**
@@ -327,80 +301,87 @@ class H5pModuleController extends ActionController
             'action'     => 'libraries',
             'label'      => $this->getLanguageService()->sL('LLL:EXT:h5p/Resources/Private/Language/locallang.xlf:module.menu.libraries')
         ];
-        $uriBuilder = $this->objectManager->get(UriBuilder::class);
-        $uriBuilder->setRequest($this->request);
+        $this->uriBuilder->setRequest($this->request);
 
-        $menu = $this->view->getModuleTemplate()->getDocHeaderComponent()->getMenuRegistry()->makeMenu();
+        $menu = $this->moduleTemplate->getDocHeaderComponent()->getMenuRegistry()->makeMenu();
         $menu->setIdentifier('IndexedSearchModuleMenu');
 
-        foreach ($menuItems as $menuItemConfig) {
-            $isActive = $this->request->getControllerActionName() === $menuItemConfig['action'];
+        foreach ($menuItems as $menuItem) {
+            $isActive = $this->request->getControllerActionName() === $menuItem['action'];
             $menuItem = $menu->makeMenuItem()
-                ->setTitle($menuItemConfig['label'])
-                ->setHref($this->getHref($menuItemConfig['controller'], $menuItemConfig['action']))
+                ->setTitle($menuItem['label'])
+                ->setHref($this->uriBuilder->uriFor($menuItem['action']))
                 ->setActive($isActive);
             $menu->addMenuItem($menuItem);
         }
 
-        $this->view->getModuleTemplate()->getDocHeaderComponent()->getMenuRegistry()->addMenu($menu);
+        $this->moduleTemplate->getDocHeaderComponent()->getMenuRegistry()->addMenu($menu);
     }
 
     /**
      * Shows a list of h5p content
      *
-     * @return void
+     * @param int $currentPage
+     * @return ResponseInterface
      */
-    public function indexAction()
+    public function indexAction(int $currentPage = 1): ResponseInterface
     {
-        $this->view->getModuleTemplate()->getPageRenderer()->addInlineLanguageLabelFile('EXT:h5p/Resources/Private/Language/locallang.xlf');
-        if ($this->isAccessibleForCurrentUser) {
-            $this->view->getModuleTemplate()->getDocHeaderComponent()->setMetaInformation($this->pageRecord);
-        }
-
-        $contentRepository = $this->objectManager->get(ContentRepository::class);
+        $contentRepository = GeneralUtility::makeInstance(ContentRepository::class);
         $content = $contentRepository->findAll();
 
-        $this->view->assign('h5pContentAllowedOnPage', $this->h5pContentAllowedOnPage);
-        $this->view->assign('dateFormat', $GLOBALS['TYPO3_CONF_VARS']['SYS']['ddmmyy']);
-        $this->view->assign('timeFormat', $GLOBALS['TYPO3_CONF_VARS']['SYS']['hhmm']);
-        $this->view->assign('id', $this->id);
-        $this->view->assign('h5pContent', $content);
+        $paginator = new QueryResultPaginator($content, $currentPage, $this->itemsPerPage);
+        $pagination = new SimplePagination($paginator);
+
+
+        $this->view->assignMultiple([
+            'action'                  => 'index',
+            'paginator'               => $paginator,
+            'pagination'              => $pagination,
+            'h5pContentAllowedOnPage' => $this->h5pContentAllowedOnPage,
+            'id'                      => $this->id,
+            'h5pContent'              => $content
+        ]);
+
+        $this->moduleTemplate->setContent($this->view->render());
+        return $this->htmlResponse($this->moduleTemplate->renderContent());
     }
 
     /**
      * Shows a list of h5p content on selected page
      *
-     * @return void
+     * @param int $currentPage
+     * @return ResponseInterface
      */
-    public function contentAction()
+    public function contentAction(int $currentPage = 1): ResponseInterface
     {
-        $this->view->getModuleTemplate()->getPageRenderer()->addInlineLanguageLabelFile('EXT:h5p/Resources/Private/Language/locallang.xlf');
-        if ($this->isAccessibleForCurrentUser) {
-            $this->view->getModuleTemplate()->getDocHeaderComponent()->setMetaInformation($this->pageRecord);
-        }
-
-        $contentRepository = $this->objectManager->get(ContentRepository::class);
+        $contentRepository = GeneralUtility::makeInstance(ContentRepository::class);
         $content = $contentRepository->findByPid($this->id);
 
-        $this->view->assign('h5pContentAllowedOnPage', $this->h5pContentAllowedOnPage);
-        $this->view->assign('dateFormat', $GLOBALS['TYPO3_CONF_VARS']['SYS']['ddmmyy']);
-        $this->view->assign('timeFormat', $GLOBALS['TYPO3_CONF_VARS']['SYS']['hhmm']);
-        $this->view->assign('id', $this->id);
-        $this->view->assign('h5pContent', $content);
+        $paginator = new QueryResultPaginator($content, $currentPage, $this->itemsPerPage);
+        $pagination = new SimplePagination($paginator);
+
+        $this->view->assignMultiple([
+            'action'                  => 'content',
+            'h5pContentAllowedOnPage' => $this->h5pContentAllowedOnPage,
+            'id'                      => $this->id,
+            'h5pContent'              => $content,
+            'paginator'               => $paginator,
+            'pagination'              => $pagination,
+        ]);
+        $this->moduleTemplate->setContent($this->view->render());
+        return $this->htmlResponse($this->moduleTemplate->renderContent());
     }
 
     /**
      * Renders the available libraries
      *
-     * @return void
+     * @param int $currentPage
+     * @return ResponseInterface
+     * @throws \TYPO3\CMS\Extbase\Object\Exception
      */
-    public function librariesAction()
+    public function librariesAction(int $currentPage = 1): ResponseInterface
     {
-        $this->view->getModuleTemplate()->getPageRenderer()->addInlineLanguageLabelFile('EXT:h5p/Resources/Private/Language/locallang.xlf');
-        if ($this->isAccessibleForCurrentUser) {
-            $this->view->getModuleTemplate()->getDocHeaderComponent()->setMetaInformation($this->pageRecord);
-        }
-        $libraryRepository = $this->objectManager->get(LibraryRepository::class);
+        $libraryRepository = GeneralUtility::makeInstance(LibraryRepository::class);
         $libraries = $libraryRepository->findAll();
 
         // Check if any libraries need an update
@@ -427,30 +408,61 @@ class H5pModuleController extends ActionController
             }
         }
         if (count($librariesThatNeedUpdate) > 0) {
-            $objectManager = GeneralUtility::makeInstance(ObjectManager::class);
-            $persistenceManager = $objectManager->get(PersistenceManager::class);
+            $persistenceManager = GeneralUtility::makeInstance(PersistenceManager::class);
             foreach ($librariesThatNeedUpdate as $library) {
                 $persistenceManager->add($library);
             }
             $persistenceManager->persistAll();
         }
 
-        $this->view->assign('dateFormat', $GLOBALS['TYPO3_CONF_VARS']['SYS']['ddmmyy']);
-        $this->view->assign('timeFormat', $GLOBALS['TYPO3_CONF_VARS']['SYS']['hhmm']);
-        $this->view->assign('libraries', $libraries);
+        $paginator = new QueryResultPaginator($libraries, $currentPage, $this->itemsPerPage);
+        $pagination = new SimplePagination($paginator);
+
+        $this->view->assignMultiple([
+            'action'     => 'libraries',
+            'libraries'  => $libraries,
+            'paginator'  => $paginator,
+            'pagination' => $pagination,
+        ]);
+
+        $this->moduleTemplate->setContent($this->view->render());
+        return $this->htmlResponse($this->moduleTemplate->renderContent());
+    }
+
+    /**
+     * Convert list of file paths to csv
+     *
+     * @param array $library
+     *  Library data as found in library.json files
+     * @param string $key
+     *  Key that should be found in $libraryData
+     *
+     * @return string
+     *  file paths separated by ', '
+     */
+    private static function pathsToCsv(array $library, string $key): string
+    {
+        if (isset($library[$key])) {
+            $paths = [];
+            foreach ($library[$key] as $file) {
+                $paths[] = $file['path'];
+            }
+            return implode(', ', $paths);
+        }
+        return '';
     }
 
     /**
      * Create action
      *
-     * @throws \TYPO3\CMS\Extbase\Mvc\Exception\StopActionException
-     * @throws \TYPO3\CMS\Extbase\Mvc\Exception\NoSuchArgumentException
+     * @throws StopActionException
+     * @throws NoSuchArgumentException
      */
-    public function createAction()
+    public function createAction(): ResponseInterface
     {
         // Keep track of the old library and params
-        $oldLibrary = NULL;
-        $oldParams = NULL;
+        $oldLibrary = null;
+        $oldParams = null;
         $content = [
             'disable' => H5PCore::DISABLE_NONE
         ];
@@ -459,33 +471,34 @@ class H5pModuleController extends ActionController
         $content['library'] = H5PCore::libraryFromString($this->request->getArgument('library'));
         if (!$content['library']) {
             $this->h5pCore->h5pF->setErrorMessage('Invalid library.');
-            $this->forward('new');
+            return new ForwardResponse('new');
         }
         if ($this->h5pCore->h5pF->libraryHasUpgrade($content['library'])) {
             // We do not allow storing old content due to security concerns
             $this->h5pCore->h5pF->setErrorMessage('Something unexpected happened. We were unable to save this content.');
             $this->addFlashMessage('Something unexpected happened. We were unable to save this content.');
-            $this->forward('new');
+            return new ForwardResponse('new');
         }
 
         // Check if library exists.
-        $content['library']['libraryId'] = $this->h5pCore->h5pF->getLibraryId($content['library']['machineName'], $content['library']['majorVersion'], $content['library']['minorVersion']);
+        $content['library']['libraryId'] = $this->h5pCore->h5pF->getLibraryId($content['library']['machineName'], $content['library']['majorVersion'],
+            $content['library']['minorVersion']);
         if (!$content['library']['libraryId']) {
             $this->h5pCore->h5pF->setErrorMessage('No such library.');
             $this->addFlashMessage('No such library.');
-            $this->forward('new');
+            return new ForwardResponse('new');
         }
 
         // Check parameters
         $content['params'] = $this->request->getArgument('parameters');
-        if ($content['params'] === NULL) {
-            return FALSE;
+        if ($content['params'] === null) {
+            return false;
         }
         $params = json_decode($content['params']);
-        if ($params === NULL) {
+        if ($params === null) {
             $this->h5pCore->h5pF->setErrorMessage('Invalid parameters.');
             $this->addFlashMessage('Invalid parameters.');
-            $this->forward('new');
+            return new ForwardResponse('new');
         }
 
         $content['params'] = json_encode($params->params);
@@ -495,12 +508,12 @@ class H5pModuleController extends ActionController
         $trimmed_title = empty($content['metadata']->title) ? '' : trim($content['metadata']->title);
         if ($trimmed_title === '') {
             $this->addFlashMessage('Missing title');
-            $this->forward('new');
+            return new ForwardResponse('new');
         }
 
         if (strlen($trimmed_title) > 255) {
-            $this->addFlashMessage('Title is too long. Must be 256 letters or shorter.', '', FlashMessage::ERROR);
-            $this->forward('new');
+            $this->addFlashMessage('Title is too long. Must be 256 letters or shorter.', '', AbstractMessage::ERROR);
+            return new ForwardResponse('new');
         }
 
         $this->setDisabledContentFeatures($this->h5pCore, $content);
@@ -509,8 +522,8 @@ class H5pModuleController extends ActionController
             // Save new content
             $content['id'] = $this->h5pCore->saveContent($content);
         } catch (\Exception $e) {
-            $this->addFlashMessage($e->getMessage(), $e->getCode(), FlashMessage::ERROR);
-            $this->forward('new');
+            $this->addFlashMessage($e->getMessage(), $e->getCode(), AbstractMessage::ERROR);
+            return new ForwardResponse('new');
         }
 
         // Move images and find all content dependencies
@@ -523,7 +536,7 @@ class H5pModuleController extends ActionController
         $this->h5pCore->filterParameters($content);
 
         $this->addFlashMessage('Content stored successfully.');
-        $this->forward('show', 'H5pModule', 'h5p', ['contentId' => $content['id']]);
+        return (new ForwardResponse('show'))->withControllerName('H5pModule')->withExtensionName('h5p')->withArguments(['contentId' => $content['id']]);
     }
 
     /**
@@ -532,9 +545,9 @@ class H5pModuleController extends ActionController
      * @param H5PCore $core
      * @param $content
      * @return void
-     * @throws \TYPO3\CMS\Extbase\Mvc\Exception\NoSuchArgumentException
+     * @throws NoSuchArgumentException
      */
-    private function setDisabledContentFeatures($core, &$content)
+    private function setDisabledContentFeatures(H5PCore $core, &$content): void
     {
         $set = [
             H5PCore::DISPLAY_OPTION_FRAME     => (bool)$this->request->getArgument('frame'),
@@ -548,18 +561,20 @@ class H5pModuleController extends ActionController
     /**
      * Update action
      *
-     * @throws \TYPO3\CMS\Extbase\Mvc\Exception\StopActionException
-     * @throws \TYPO3\CMS\Extbase\Mvc\Exception\NoSuchArgumentException
+     * @throws StopActionException
+     * @throws NoSuchArgumentException
      */
-    public function updateAction()
+    public function updateAction(): ResponseInterface
     {
-
         // Content id
-        $contentId = $this->request->getArgument('contentId');
+        $contentId = null;
+        if ($this->request->hasArgument('contentId')) {
+            $contentId = $this->request->getArgument('contentId');
+        }
 
         // Keep track of the old library and params
-        $oldLibrary = NULL;
-        $oldParams = NULL;
+        $oldLibrary = null;
+        $oldParams = null;
         $content = [
             'disable' => H5PCore::DISABLE_NONE
         ];
@@ -568,33 +583,34 @@ class H5pModuleController extends ActionController
         $content['library'] = H5PCore::libraryFromString($this->request->getArgument('library'));
         if (!$content['library']) {
             $this->h5pCore->h5pF->setErrorMessage('Invalid library.');
-            $this->forward('new');
+            return new ForwardResponse('new');
         }
         if ($this->h5pCore->h5pF->libraryHasUpgrade($content['library'])) {
             // We do not allow storing old content due to security concerns
             $this->h5pCore->h5pF->setErrorMessage('Something unexpected happened. We were unable to save this content.');
             $this->addFlashMessage('Something unexpected happened. We were unable to save this content.');
-            $this->forward('new');
+            return new ForwardResponse('new');
         }
 
         // Check if library exists.
-        $content['library']['libraryId'] = $this->h5pCore->h5pF->getLibraryId($content['library']['machineName'], $content['library']['majorVersion'], $content['library']['minorVersion']);
+        $content['library']['libraryId'] = $this->h5pCore->h5pF->getLibraryId($content['library']['machineName'], $content['library']['majorVersion'],
+            $content['library']['minorVersion']);
         if (!$content['library']['libraryId']) {
             $this->h5pCore->h5pF->setErrorMessage('No such library.');
             $this->addFlashMessage('No such library.');
-            $this->forward('new');
+            return new ForwardResponse('new');
         }
 
         // Check parameters
         $content['params'] = $this->request->getArgument('parameters');
-        if ($content['params'] === NULL) {
-            return FALSE;
+        if ($content['params'] === null) {
+            return false;
         }
         $params = json_decode($content['params']);
-        if ($params === NULL) {
+        if ($params === null) {
             $this->h5pCore->h5pF->setErrorMessage('Invalid parameters.');
             $this->addFlashMessage('Invalid parameters.');
-            $this->forward('new');
+            return new ForwardResponse('new');
         }
 
         $content['params'] = json_encode($params->params);
@@ -604,12 +620,12 @@ class H5pModuleController extends ActionController
         $trimmed_title = empty($content['metadata']->title) ? '' : trim($content['metadata']->title);
         if ($trimmed_title === '') {
             $this->addFlashMessage('Missing title');
-            $this->forward('new');
+            return new ForwardResponse('new');
         }
 
         if (strlen($trimmed_title) > 255) {
-            $this->addFlashMessage('Title is too long. Must be 256 letters or shorter.', '', FlashMessage::ERROR);
-            $this->forward('new');
+            $this->addFlashMessage('Title is too long. Must be 256 letters or shorter.', '', AbstractMessage::ERROR);
+            return new ForwardResponse('new');
         }
 
         $this->setDisabledContentFeatures($this->h5pCore, $content);
@@ -617,10 +633,10 @@ class H5pModuleController extends ActionController
         try {
             // Save new content
             $content['id'] = $contentId;
-            $content['id'] = $this->h5pCore->saveContent($content);
+            $content['id'] = $this->h5pCore->saveContent($content, $contentId);
         } catch (\Exception $e) {
-            $this->addFlashMessage($e->getMessage(), $e->getCode(), FlashMessage::ERROR);
-            $this->forward('new');
+            $this->addFlashMessage($e->getMessage(), $e->getCode(), AbstractMessage::ERROR);
+            return new ForwardResponse('new');
         }
 
         // Move images and find all content dependencies
@@ -633,60 +649,68 @@ class H5pModuleController extends ActionController
         $this->h5pCore->filterParameters($content);
 
         $this->addFlashMessage('Content stored successfully.');
-        $this->forward('show', 'H5pModule', 'h5p', ['contentId' => $content['id']]);
+        return (new ForwardResponse('show'))->withControllerName('H5pModule')->withExtensionName('h5p')->withArguments(['contentId' => $content['id']]);
     }
 
     /**
      * Edit action
      * @param int $contentId
-     * @throws \TYPO3\CMS\Backend\Routing\Exception\RouteNotFoundException
+     * @throws RouteNotFoundException
      */
-    public function editAction(int $contentId)
+    public function editAction(int $contentId): ResponseInterface
     {
-        $this->view->getModuleTemplate()->getPageRenderer()->addInlineLanguageLabelFile('EXT:h5p/Resources/Private/Language/locallang.xlf');
-        if ($this->isAccessibleForCurrentUser) {
-            $this->view->getModuleTemplate()->getDocHeaderComponent()->setMetaInformation($this->pageRecord);
-        }
-
-        $this->view->getModuleTemplate()->getPageRenderer()->addJsInlineCode(
+        $this->pageRenderer->addJsInlineCode(
             'H5PIntegration',
             'H5PIntegration = ' . json_encode($this->getEditorSettings($this->getCoreSettings())) . ';'
         );
 
         if ($contentId > 0) {
-            $contenRepository = $this->objectManager->get(ContentRepository::class);
-            $content = $contenRepository->findByUid($contentId);
+            $contentRepository = GeneralUtility::makeInstance(ContentRepository::class);
+            $content = $contentRepository->findByUid($contentId);
 
             if (!$content instanceof Content) {
-                $this->addFlashMessage(sprintf('Content element with id %d not found', $contentId), 'Record not found', FlashMessage::ERROR);
-                return;
+                $this->addFlashMessage(sprintf('Content element with id %d not found', $contentId), 'Record not found', AbstractMessage::ERROR);
+                $this->redirect('error', 'H5pModule', 'h5p');
             }
 
             // load JS and CSS requirements
             $contentLibrary = $content->getLibrary();
             if ($contentLibrary instanceof Library) {
                 $contentLibraryArray = $contentLibrary->toAssocArray();
-                $this->view->assign('library', sprintf('%s %d.%d', $contentLibraryArray['machineName'], $contentLibraryArray['majorVersion'], $contentLibraryArray['minorVersion']));
+                $this->view->assign('library',
+                    sprintf('%s %d.%d', $contentLibraryArray['machineName'], $contentLibraryArray['majorVersion'], $contentLibraryArray['minorVersion']));
             }
             $this->view->assign('content', $content);
-            $parameters = (array)json_decode($content->getFiltered(), true);
+            $parameters = (array)json_decode($content->getFiltered());
             $displayOptions = $this->h5pCore->getDisplayOptionsForEdit($content->getDisable());
             $this->view->assign('displayOptions', $displayOptions);
             $parameters = $this->injectMetadataIntoParameters($parameters, $content);
-            $this->view->assign('parameters', json_encode($parameters, true));
+            $parameters = json_encode($parameters, JSON_THROW_ON_ERROR);
+            // Unbreak wrongly encoded parameters (Content.php updateFromContentData())
+            $parameters = str_replace([
+                '"globalBackgroundSelector":[]',
+                '"slideBackgroundSelector":[]',
+                '"image":[]'
+            ], [
+                '"globalBackgroundSelector":{}',
+                '"slideBackgroundSelector":{}',
+                '"image":{}'
+            ], $parameters);
+            $this->view->assign('parameters', $parameters);
         }
 
         $this->embedEditorScriptsAndStyles();
+        $this->moduleTemplate->setContent($this->view->render());
+        return $this->htmlResponse($this->moduleTemplate->renderContent());
     }
 
     /**
      * @param $settings
      * @return mixed
-     * @throws \TYPO3\CMS\Backend\Routing\Exception\RouteNotFoundException
+     * @throws RouteNotFoundException|NoSuchArgumentException
      */
     public function getEditorSettings($settings)
     {
-        $uriBuilder = GeneralUtility::makeInstance(BackendUriBuilder::class);
         $absoluteWebPath = PathUtility::getAbsoluteWebPath(ExtensionManagementUtility::extPath('h5p'));
 
         $cacheBuster = '?v=' . Framework::$version;
@@ -699,7 +723,7 @@ class H5pModuleController extends ActionController
                 'width'  => 50,
                 'height' => 50,
             ],
-            'ajaxPath'           => (string)$uriBuilder->buildUriFromRoute('h5p_editor_action', ['action' => 'h5p_']),
+            'ajaxPath'           => (string)$this->backendUriBuilder->buildUriFromRoute('h5p_editor_action', ['action' => 'h5p_']),
             'libraryUrl'         => $absoluteWebPath . 'Resources/Public/Lib/h5p-editor/',
             'copyrightSemantics' => $this->h5pContentValidator->getCopyrightSemantics(),
             'metadataSemantics'  => $this->h5pContentValidator->getMetadataSemantics(),
@@ -727,9 +751,13 @@ class H5pModuleController extends ActionController
             }
         }
 
-        //        if ($id !== NULL) {
-//            $settings['editor']['nodeVersionId'] = $id;
-//        }
+        $id = null;
+        if ($this->request->hasArgument('contentId')) {
+            $id = $this->request->getArgument('contentId');
+        }
+        if ($id !== null) {
+            $settings['editor']['nodeVersionId'] = $id;
+        }
         return $settings;
     }
 
@@ -737,13 +765,12 @@ class H5pModuleController extends ActionController
      * Get generic h5p settings
      *
      * @return array;
-     * @throws \TYPO3\CMS\Backend\Routing\Exception\RouteNotFoundException
+     * @throws RouteNotFoundException|\TYPO3\CMS\Extbase\Object\Exception
      */
-    public function getCoreSettings()
+    public function getCoreSettings(): array
     {
         $backendUser = $this->getBackendUser()->user;
 
-        $uriBuilder = GeneralUtility::makeInstance(BackendUriBuilder::class);
         $absoluteWebPath = PathUtility::getAbsoluteWebPath(ExtensionManagementUtility::extPath('h5p'));
 
         $url = GeneralUtility::getIndpEnv('TYPO3_REQUEST_HOST');
@@ -755,8 +782,14 @@ class H5pModuleController extends ActionController
             'url'                => '/fileadmin/h5p',
             'postUserStatistics' => false,
             'ajax'               => [
-                'setFinished'     => (string)$uriBuilder->buildUriFromRoute('h5p_editor_action', ['type' => 'setFinished', 'action' => 'h5p_']),
-                'contentUserData' => (string)$uriBuilder->buildUriFromRoute('h5p_editor_action', ['type' => 'contentUserData', 'action' => 'h5p_']),
+                'setFinished'     => (string)$this->backendUriBuilder->buildUriFromRoute('h5p_editor_action', ['type' => 'setFinished', 'action' => 'h5p_']),
+                'contentUserData' => (string)$this->backendUriBuilder->buildUriFromRoute('h5p_editor_action', [
+                    'type'           => 'contentUserData',
+                    'action'         => 'h5p_',
+                    'content_id'     => ':contentId',
+                    'data_type'      => ':dataType',
+                    'sub_content_id' => ':subContentId'
+                ]),
             ],
             'saveFreq'           => $this->h5pFramework->getOption('save_content_state') ? $this->h5pFramework->getOption('save_content_frequency') : false,
             'siteUrl'            => $url,
@@ -797,9 +830,8 @@ class H5pModuleController extends ActionController
      * @param Content $content
      * @return array
      */
-    private function injectMetadataIntoParameters(array $parameters, Content $content)
+    private function injectMetadataIntoParameters(array $parameters, Content $content): array
     {
-
         $metadata = [
             'title'          => $content->getTitle(),
             'authors'        => json_decode($content->getAuthors(), true),
@@ -820,7 +852,7 @@ class H5pModuleController extends ActionController
     /**
      * Embed scripts and styles
      */
-    protected function embedEditorScriptsAndStyles()
+    protected function embedEditorScriptsAndStyles(): void
     {
         $absoluteWebPath = PathUtility::getAbsoluteWebPath(ExtensionManagementUtility::extPath('h5p'));
         $webCorePath = $absoluteWebPath . 'Resources/Public/Lib/h5p-core/';
@@ -849,7 +881,7 @@ class H5pModuleController extends ActionController
             $paths['h5peditor-editor-language'] = $webEditorPath . 'language/en';
         }
 
-        $this->view->getModuleTemplate()->getPageRenderer()->addRequireJsConfiguration([
+        $this->pageRenderer->addRequireJsConfiguration([
                 'paths' => $paths,
                 'shim'  => [
                     'h5p-jquery'                => [
@@ -908,18 +940,18 @@ class H5pModuleController extends ActionController
         );
 
         foreach (H5PCore::$styles as $style) {
-            $this->view->getModuleTemplate()->getPageRenderer()->addCssFile($webCorePath . $style, 'stylesheet', 'all', '', false, false, '', true);
+            $this->pageRenderer->addCssFile($webCorePath . $style, 'stylesheet', 'all', '', false, false, '', true);
         }
         foreach (H5peditor::$styles as $style) {
-            $this->view->getModuleTemplate()->getPageRenderer()->addCssFile($webEditorPath . $style, 'stylesheet', 'all', '', false, false, '', true);
+            $this->pageRenderer->addCssFile($webEditorPath . $style, 'stylesheet', 'all', '', false, false, '', true);
         }
-        $this->view->getModuleTemplate()->getPageRenderer()->loadRequireJsModule('TYPO3/CMS/H5p/editor');
+        $this->pageRenderer->loadRequireJsModule('TYPO3/CMS/H5p/editor');
     }
 
     /**
      * Consent action
      */
-    public function consentAction()
+    public function consentAction(): ResponseInterface
     {
         if ($this->request->getArgument('collectStatistics')) {
             $this->h5pFramework->setOption('track_user', 1);
@@ -927,26 +959,22 @@ class H5pModuleController extends ActionController
         }
         $this->h5pFramework->setOption('hub_is_enabled', 1);
         $this->addFlashMessage('The hub has been enabled.', 'H5P hub enabled');
-
-        $this->forward('new');
+        return new ForwardResponse('new');
     }
 
     /**
      * New action / upload form
      * @param int $contentId
-     * @throws \TYPO3\CMS\Backend\Routing\Exception\RouteNotFoundException
+     * @return ResponseInterface
+     * @throws NoSuchArgumentException
+     * @throws RouteNotFoundException
+     * @throws StopActionException
+     * @throws \TYPO3\CMS\Extbase\Object\Exception
      */
-    public function newAction(int $contentId = 0)
+    public function newAction(int $contentId = 0): ResponseInterface
     {
         $this->view->assign('didConsent', (int)$this->h5pFramework->getOption('hub_is_enabled') === 1);
         $this->view->assign('h5pContentAllowedOnPage', $this->h5pContentAllowedOnPage);
-
-        $this->view->getModuleTemplate()->getPageRenderer()->addInlineLanguageLabelFile('EXT:h5p/Resources/Private/Language/locallang.xlf');
-        if ($this->isAccessibleForCurrentUser) {
-            $this->view->getModuleTemplate()->getDocHeaderComponent()->setMetaInformation($this->pageRecord);
-        }
-
-        $this->pageRenderer = $this->view->getModuleTemplate()->getPageRenderer();
 
         $this->pageRenderer->addJsInlineCode(
             'H5PIntegration',
@@ -954,55 +982,52 @@ class H5pModuleController extends ActionController
         );
 
         if ($contentId > 0) {
-            $contenRepository = $this->objectManager->get(ContentRepository::class);
-            $content = $contenRepository->findByUid($contentId);
+            $contentRepository = GeneralUtility::makeInstance(ContentRepository::class);
+            $content = $contentRepository->findByUid($contentId);
 
             if (!$content instanceof Content) {
-                $this->addFlashMessage(sprintf('Content element with id %d not found', $contentId), 'Record not found', FlashMessage::ERROR);
-                return;
+                $this->addFlashMessage(sprintf('Content element with id %d not found', $contentId), 'Record not found', AbstractMessage::ERROR);
+                $this->redirect('error');
             }
 
             // load JS and CSS requirements
             $contentLibrary = $content->getLibrary()->toAssocArray();
-            $this->view->assign('library', sprintf('%s %d.%d', $contentLibrary['machineName'], $contentLibrary['majorVersion'], $contentLibrary['minorVersion']));
+            $this->view->assign('library',
+                sprintf('%s %d.%d', $contentLibrary['machineName'], $contentLibrary['majorVersion'], $contentLibrary['minorVersion']));
             $this->view->assign('parameters', $content->getFiltered());
         }
 
         $this->embedEditorScriptsAndStyles();
+        $this->moduleTemplate->setContent($this->view->render());
+        return $this->htmlResponse($this->moduleTemplate->renderContent());
     }
 
     /**
      * Show action
      * @param int $contentId
-     * @throws \TYPO3\CMS\Backend\Routing\Exception\RouteNotFoundException
-     * @throws \TYPO3\CMS\Extbase\Mvc\Exception\StopActionException
+     * @return ResponseInterface
+     * @throws RouteNotFoundException
+     * @throws \TYPO3\CMS\Extbase\Object\Exception
      */
-    public function showAction(int $contentId)
+    public function showAction(int $contentId): ResponseInterface
     {
-        $this->view->getModuleTemplate()->getPageRenderer()->addInlineLanguageLabelFile('EXT:h5p/Resources/Private/Language/locallang.xlf');
-        if ($this->isAccessibleForCurrentUser) {
-            $this->view->getModuleTemplate()->getDocHeaderComponent()->setMetaInformation($this->pageRecord);
-        }
-
-        $this->pageRenderer = $this->view->getModuleTemplate()->getPageRenderer();
-
-        $contenRepository = $this->objectManager->get(ContentRepository::class);
-        $content = $contenRepository->findByUid($contentId);
+        $contentRepository = GeneralUtility::makeInstance(ContentRepository::class);
+        $content = $contentRepository->findByUid($contentId);
 
         if (!$content instanceof Content) {
-            $this->addFlashMessage(sprintf('Content element with id %d not found', $contentId), 'Record not found', FlashMessage::ERROR);
-            $this->forward('error');
+            $this->addFlashMessage(sprintf('Content element with id %d not found', $contentId), 'Record not found', AbstractMessage::ERROR);
+            return new ForwardResponse('error');
         }
 
         if (!$content->getLibrary()) {
-            $this->addFlashMessage('Content element has no H5P library', 'H5P library not found on content', FlashMessage::ERROR);
-            $this->forward('error');
+            $this->addFlashMessage('Content element has no H5P library', 'H5P library not found on content', AbstractMessage::ERROR);
+            return new ForwardResponse('error');
         }
 
         $cacheBuster = '?v=' . Framework::$version;
 
-        $abosluteWebPath = PathUtility::getAbsoluteWebPath(ExtensionManagementUtility::extPath('h5p'));
-        $relativeCorePath = $abosluteWebPath . 'Resources/Public/Lib/h5p-core/';
+        $absoluteWebPath = PathUtility::getAbsoluteWebPath(ExtensionManagementUtility::extPath('h5p'));
+        $relativeCorePath = $absoluteWebPath . 'Resources/Public/Lib/h5p-core/';
 
         foreach (\H5PCore::$scripts as $script) {
             $this->pageRenderer->addJsFile($relativeCorePath . $script, 'text/javascript', false, false, '', true);
@@ -1032,7 +1057,8 @@ class H5pModuleController extends ActionController
             $contentLibrary = $content->getLibrary()->toAssocArray();
 
             // JS and CSS required by all libraries
-            $contentLibraryWithDependencies = $this->h5pCore->loadLibrary($contentLibrary['machineName'], $contentLibrary['majorVersion'], $contentLibrary['minorVersion']);
+            $contentLibraryWithDependencies = $this->h5pCore->loadLibrary($contentLibrary['machineName'], $contentLibrary['majorVersion'],
+                $contentLibrary['minorVersion']);
             $this->h5pCore->findLibraryDependencies($dependencies, $contentLibraryWithDependencies);
             if (is_array($dependencies)) {
                 $dependencies = $this->h5pCore->orderDependenciesByWeight($dependencies);
@@ -1055,14 +1081,17 @@ class H5pModuleController extends ActionController
         }
 
         $this->view->assign('content', $content);
+        $this->moduleTemplate->setContent($this->view->render());
+        return $this->htmlResponse($this->moduleTemplate->renderContent());
     }
 
     /**
      * Get content settings
      *
      * @return array;
+     * @throws \TYPO3\CMS\Extbase\Object\Exception
      */
-    public function getContentSettings(Content $content)
+    public function getContentSettings(Content $content): array
     {
         $settings = [
             'url'            => '/fileadmin/h5p',
@@ -1122,7 +1151,7 @@ class H5pModuleController extends ActionController
      * @param array $library
      * @param array $settings
      */
-    private function setJsAndCss(array $library, array &$settings)
+    private function setJsAndCss(array $library, array &$settings): void
     {
         $name = $library['machineName'] . '-' . $library['majorVersion'] . '.' . $library['minorVersion'];
         $preloadCss = explode(',', $library['preloadedCss']);
@@ -1154,7 +1183,7 @@ class H5pModuleController extends ActionController
      * Load JS and CSS
      * @param array $library
      */
-    private function loadJsAndCss($library)
+    private function loadJsAndCss(array $library): void
     {
         $name = $library['machineName'] . '-' . $library['majorVersion'] . '.' . $library['minorVersion'];
         $preloadCss = explode(',', $library['preloadedCss']);
@@ -1177,34 +1206,17 @@ class H5pModuleController extends ActionController
     /**
      * Error action
      */
-    public function errorAction()
+    public function errorAction(): ResponseInterface
     {
-
-    }
-
-    /**
-     * Gets data from the session of the current backend user.
-     *
-     * @param string $identifier The identifier to be used to get the data
-     * @param string $default The default date to be used if nothing was found in the session
-     * @return string The accordant data in the session of the current backend user
-     */
-    protected function getDataFromSession($identifier, $default = null)
-    {
-        $sessionData = &$this->getBackendUser()->uc['tx_h5p'];
-        if (isset($sessionData[$identifier]) && $sessionData[$identifier]) {
-            $data = $sessionData[$identifier];
-        } else {
-            $data = $default;
-        }
-        return $data;
+        $this->moduleTemplate->setContent($this->view->render());
+        return $this->htmlResponse($this->moduleTemplate->renderContent());
     }
 
     /**
      * Set type converter configuration for Package upload
      * @param string $argumentName
      */
-    protected function setTypeConverterConfigurationForPackageUpload($argumentName)
+    protected function setTypeConverterConfigurationForPackageUpload($argumentName): void
     {
         /** @var PropertyMappingConfiguration $newExampleConfiguration */
         $newExampleConfiguration = $this->arguments[$argumentName]->getPropertyMappingConfiguration();
@@ -1216,28 +1228,5 @@ class H5pModuleController extends ActionController
                     UploadedFileReferenceConverter::CONFIGURATION_UPLOAD_FOLDER           => '1:/h5p/packages/',
                 ]
             );
-    }
-
-    /**
-     * Convert list of file paths to csv
-     *
-     * @param array $library
-     *  Library data as found in library.json files
-     * @param string $key
-     *  Key that should be found in $libraryData
-     *
-     * @return string
-     *  file paths separated by ', '
-     */
-    private static function pathsToCsv($library, $key)
-    {
-        if (isset($library[$key])) {
-            $paths = [];
-            foreach ($library[$key] as $file) {
-                $paths[] = $file['path'];
-            }
-            return implode(', ', $paths);
-        }
-        return '';
     }
 }

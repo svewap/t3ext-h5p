@@ -1,53 +1,55 @@
 <?php
 
+use MichielRoos\H5p\Controller\AjaxController;
+use MichielRoos\H5p\Controller\ViewController;
 use TYPO3\CMS\Extbase\Utility\ExtensionUtility;
 
 defined('TYPO3_MODE') or die('¯\_(ツ)_/¯');
 
 ExtensionUtility::configurePlugin(
-    'MichielRoos.h5p',
+    'h5p',
     'view',
     [
-        'View' => 'index',
+        ViewController::class => 'index',
     ],
     [
-        'View' => 'index',
+        ViewController::class => 'index',
     ],
     ExtensionUtility::PLUGIN_TYPE_CONTENT_ELEMENT
 );
 
 ExtensionUtility::configurePlugin(
-    'MichielRoos.h5p',
+    'h5p',
     'embedded',
     [
-        'View' => 'embedded',
+        ViewController::class => 'embedded',
     ],
     [
-        'View' => 'embedded',
+        ViewController::class => 'embedded',
     ],
     ExtensionUtility::PLUGIN_TYPE_CONTENT_ELEMENT
 );
 
 ExtensionUtility::configurePlugin(
-    'MichielRoos.h5p',
+    'h5p',
     'statistics',
     [
-        'View' => 'statistics',
+        ViewController::class => 'statistics',
     ],
     [
-        'View' => 'statistics',
+        ViewController::class => 'statistics',
     ],
     ExtensionUtility::PLUGIN_TYPE_CONTENT_ELEMENT
 );
 
 ExtensionUtility::configurePlugin(
-    'MichielRoos.h5p',
+    'h5p',
     'ajax',
     [
-        'Ajax' => 'index,finish,contentUserData',
+        AjaxController::class => 'index,finish,contentUserData',
     ],
     [
-        'Ajax' => 'index,finish,contentUserData',
+        AjaxController::class => 'index,finish,contentUserData',
     ]
 );
 

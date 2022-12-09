@@ -1,5 +1,7 @@
 <?php
 
+use MichielRoos\H5p\Controller\H5pModuleController;
+use TYPO3\CMS\Core\Configuration\ExtensionConfiguration;
 use TYPO3\CMS\Core\Imaging\IconProvider\BitmapIconProvider;
 use TYPO3\CMS\Core\Imaging\IconRegistry;
 use TYPO3\CMS\Core\Utility\ExtensionManagementUtility;
@@ -24,17 +26,17 @@ ExtensionUtility::registerPlugin(
 
 if (TYPO3_MODE === 'BE') {
     ExtensionUtility::registerModule(
-        'MichielRoos.h5p',
+        'h5p',
         'web',
         'Manager',
         '',
         [
-            'H5pModule' => 'content,index,new,edit,create,libraries,show,update,consent,error',
+            H5pModuleController::class => 'content,index,new,edit,create,libraries,show,update,consent,error',
         ],
         [
             'access' => 'user,group',
             'icon'   => 'EXT:h5p/ext_icon.gif',
-            'labels' => 'LLL:EXT:h5p/Resources/Private/Language/BackendModule.xml',
+            'labels' => 'LLL:EXT:h5p/Resources/Private/Language/BackendModule.xlf',
         ]
     );
 
@@ -48,14 +50,9 @@ if (TYPO3_MODE === 'BE') {
         ['source' => 'EXT:h5p/ext_icon.gif']
     );
 
-    call_user_func(
-        function ($extKey) {
-            $extConf = unserialize($GLOBALS['TYPO3_CONF_VARS']['EXT']['extConf'][$extKey]);
-            if (!isset($extConf['onlyAllowRecordsInSysfolders']) || (int)$extConf['onlyAllowRecordsInSysfolders'] === 0) {
-                ExtensionManagementUtility::allowTableOnStandardPages('tx_h5p_domain_model_content');
-            }
-        },
-        'h5p'
-    );
+    $setup = GeneralUtility::makeInstance(ExtensionConfiguration::class)->get('h5p');
+    if ((int)($setup['onlyAllowRecordsInSysfolders'] ?? 0) === 0) {
+        ExtensionManagementUtility::allowTableOnStandardPages('tx_h5p_domain_model_content');
+    }
     ExtensionManagementUtility::allowTableOnStandardPages('tx_h5p_domain_model_configsetting');
 }
